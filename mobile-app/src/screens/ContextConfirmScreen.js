@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Header } from '../components/Header';
 import { AppText } from '../components/AppText';
@@ -8,17 +8,31 @@ import { AppButton } from '../components/AppButton';
 import { Pill } from '../components/Pill';
 import { Routes } from '../navigation/routes';
 import { useReplyFlow } from '../state/replyFlowStore';
-import { generateReplies } from '../mock/mockReplies';
 import { useThemeTokens } from '../theme/useThemeTokens';
 import { SettingsButton } from '../components/SettingsButton';
+import { fetchReplySuggestions } from '../services/replyApi';
 
 const REL_OPTIONS = ['Friend', 'Partner', 'Work', 'Family'];
 const MOOD_OPTIONS = ['Calm', 'Upset', 'Angry', 'Neutral'];
+
+function toApiRelationship(rel) {
+  const v = (rel || '').toLowerCase();
+  if (!v) return 'personal';
+  return v;
+}
+
+function toApiTone(mood) {
+  const v = (mood || '').toLowerCase();
+  if (!v) return 'calm';
+  if (v === 'angry' || v === 'upset') return 'calm';
+  return v;
+}
 
 export function ContextConfirmScreen({ navigation }) {
   const t = useThemeTokens();
   const { state, dispatch } = useReplyFlow();
   const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const relationshipLabel = useMemo(() => state.context.relationship, [state.context.relationship]);
   const moodLabel = useMemo(() => state.context.mood, [state.context.mood]);
@@ -76,14 +90,30 @@ export function ContextConfirmScreen({ navigation }) {
           </View>
           <View style={styles.bottomRight}>
             <AppButton
-              title="Yes, looks right"
-              onPress={() => {
-                const replies = generateReplies({
-                  pastedText: state.pastedText,
-                  context: state.context,
-                });
-                dispatch({ type: 'SET_REPLIES', payload: replies });
-                navigation.navigate(Routes.ReplySuggestions);
+              title={loading ? 'Generating…' : 'Yes, looks right'}
+              disabled={loading}
+              onPress={async () => {
+                try {
+                  setLoading(true);
+                  const replies = await fetchReplySuggestions({
+                    message: state.pastedText,
+                    context: {
+                      relationship: toApiRelationship(state.context.relationship),
+                      tone: toApiTone(state.context.mood),
+                    },
+                  });
+                  dispatch({ type: 'SET_REPLIES', payload: replies });
+                  navigation.navigate(Routes.ReplySuggestions);
+                } catch (e) {
+                  dispatch({ type: 'SET_REPLIES', payload: [] });
+                  const msg =
+                    typeof e?.message === 'string' && e.message.trim()
+                      ? e.message
+                      : 'Something went wrong. Please try again.';
+                  Alert.alert('Please try again', msg);
+                } finally {
+                  setLoading(false);
+                }
               }}
               accessibilityLabel="Confirm context"
             />

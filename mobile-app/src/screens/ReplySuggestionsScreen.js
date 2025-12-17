@@ -4,28 +4,37 @@ import * as Clipboard from 'expo-clipboard';
 import { Screen } from '../components/Screen';
 import { Header } from '../components/Header';
 import { AppText } from '../components/AppText';
+import { AppCard } from '../components/AppCard';
 import { ReplyCard } from '../components/ReplyCard';
 import { AppButton } from '../components/AppButton';
 import { useReplyFlow } from '../state/replyFlowStore';
 import { Routes } from '../navigation/routes';
-import { makeRepliesShorter, makeRepliesSofter } from '../mock/mockReplies';
 import { useThemeTokens } from '../theme/useThemeTokens';
 import { SettingsButton } from '../components/SettingsButton';
+import { fetchReplySuggestions } from '../services/replyApi';
 
-const FALLBACK_REPLIES = [
-  { tone: 'Calm', text: 'Sorry yaar, thoda busy tha. Tum important ho ❤️' },
-  { tone: 'Honest', text: "I know I replied late, didn’t mean to ignore you." },
-  { tone: 'Short', text: 'Sorry 😔 won’t happen again.' },
-];
+function toApiRelationship(rel) {
+  const v = (rel || '').toLowerCase();
+  if (!v) return 'personal';
+  return v;
+}
+
+function toApiTone(mood) {
+  const v = (mood || '').toLowerCase();
+  if (!v) return 'calm';
+  if (v === 'angry' || v === 'upset') return 'calm';
+  return v;
+}
 
 export function ReplySuggestionsScreen({ navigation }) {
   const t = useThemeTokens();
   const { state, dispatch } = useReplyFlow();
   const [actionCount, setActionCount] = useState(0);
+  const [tuning, setTuning] = useState(false);
 
   const replies = useMemo(() => {
     if (state.replies?.length) return state.replies;
-    return FALLBACK_REPLIES;
+    return [];
   }, [state.replies]);
 
   async function copy(text) {
@@ -41,6 +50,29 @@ export function ReplySuggestionsScreen({ navigation }) {
     if (nextCount >= 3) navigation.navigate(Routes.Paywall);
   }
 
+  async function regenerate({ toneOverride }) {
+    try {
+      setTuning(true);
+      const nextReplies = await fetchReplySuggestions({
+        message: state.pastedText,
+        context: {
+          relationship: toApiRelationship(state.context.relationship),
+          tone: toneOverride || toApiTone(state.context.mood),
+        },
+      });
+      dispatch({ type: 'SET_REPLIES', payload: nextReplies });
+    } catch (e) {
+      const msg =
+        typeof e?.message === 'string' && e.message.trim()
+          ? e.message
+          : 'Something went wrong. Please try again.';
+      if (Platform.OS === 'android') ToastAndroid.show(msg, ToastAndroid.LONG);
+      else Alert.alert('Please try again', msg);
+    } finally {
+      setTuning(false);
+    }
+  }
+
   const styles = StyleSheet.create({
     container: { paddingHorizontal: t.spacing.xl, paddingTop: t.spacing.md },
     sub: { color: t.colors.textMuted },
@@ -49,6 +81,7 @@ export function ReplySuggestionsScreen({ navigation }) {
     bottomRow: { flexDirection: 'row', alignItems: 'center' },
     bottomLeft: { flex: 1, marginRight: t.spacing.md },
     bottomRight: { flex: 1 },
+    emptyCard: { padding: t.spacing.lg, marginTop: t.spacing.lg }
   });
 
   return (
@@ -57,24 +90,26 @@ export function ReplySuggestionsScreen({ navigation }) {
         <View style={styles.bottomRow}>
           <View style={styles.bottomLeft}>
             <AppButton
-              title="Make it softer"
+              title="More gentle"
               variant="secondary"
+              disabled={tuning || replies.length === 0}
               onPress={() => {
                 const next = actionCount + 1;
                 setActionCount(next);
-                dispatch({ type: 'SET_REPLIES', payload: makeRepliesSofter(replies) });
+                regenerate({ toneOverride: 'soft' });
                 maybeShowPaywall(next);
               }}
             />
           </View>
           <View style={styles.bottomRight}>
             <AppButton
-              title="Make it shorter"
+              title="More direct"
               variant="secondary"
+              disabled={tuning || replies.length === 0}
               onPress={() => {
                 const next = actionCount + 1;
                 setActionCount(next);
-                dispatch({ type: 'SET_REPLIES', payload: makeRepliesShorter(replies) });
+                regenerate({ toneOverride: 'firm' });
                 maybeShowPaywall(next);
               }}
             />
@@ -93,13 +128,29 @@ export function ReplySuggestionsScreen({ navigation }) {
           Pick one that feels like you.
         </AppText>
 
-        <View style={styles.list}>
-          {replies.slice(0, 3).map((r, idx) => (
-            <View key={`${r.tone}-${idx}`} style={styles.item}>
-              <ReplyCard toneLabel={r.tone} text={r.text} onCopy={() => copy(r.text)} />
+        {replies.length === 0 ? (
+          <AppCard style={styles.emptyCard}>
+            <AppText variant="body">No replies yet.</AppText>
+            <AppText variant="tiny" style={[styles.sub, { marginTop: t.spacing.sm }]}>
+              Go back and try generating again. If you’re on a phone, set your backend URL in Settings.
+            </AppText>
+            <View style={{ marginTop: t.spacing.lg }}>
+              <AppButton title="Go back" variant="secondary" onPress={() => navigation.goBack()} />
             </View>
-          ))}
-        </View>
+          </AppCard>
+        ) : (
+          <View style={styles.list}>
+            {replies.slice(0, 3).map((text, idx) => (
+              <View key={`reply-${idx}`} style={styles.item}>
+                <ReplyCard
+                  toneLabel={idx === 0 ? 'Best' : idx === 1 ? 'Softer' : 'Firmer'}
+                  text={text}
+                  onCopy={() => copy(text)}
+                />
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </Screen>
   );
