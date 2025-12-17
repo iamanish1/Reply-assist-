@@ -1,20 +1,23 @@
+import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { ReplyFlowProvider } from './src/state/replyFlowStore';
+import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
+import { AppNavigator } from './src/navigation/AppNavigator';
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <ThemeProvider>
+      <ThemedApp />
+    </ThemeProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+function ThemedApp() {
+  const { resolvedMode } = useTheme();
+  return (
+    <ReplyFlowProvider>
+      <StatusBar style={resolvedMode === 'dark' ? 'light' : 'dark'} />
+      <AppNavigator />
+    </ReplyFlowProvider>
+  );
+}
